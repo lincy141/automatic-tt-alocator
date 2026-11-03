@@ -302,6 +302,8 @@ export async function generateTimetableWithAI({ state, departmentId, classSectio
     if (filledCells.has(cellKey)) reasons.push('cell already filled');
     if (seenCells.has(cellKey)) reasons.push('duplicate cell from AI');
     if (!subject) reasons.push('unknown subject');
+    // Theory + Lab needs its exact 2-period lab block and spread-out theory: the local generator owns it.
+    if (subject && isMixedSubject(subject)) reasons.push('Theory + Lab subjects are scheduled by the local generator only');
     if (!faculty || !subject?.facultyIds.includes(facultyId)) reasons.push('faculty not eligible for subject');
     if (roomId && !roomById.has(roomId)) reasons.push('unknown room');
     if (subject && (hoursDone.get(subjectId) || 0) >= (Number(subject.weeklyHours) || 0)) reasons.push('subject weekly hours exceeded');

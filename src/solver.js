@@ -110,6 +110,9 @@ const isLabSubject = (s) => s.type === 'Lab' || s.labRequired === true;
 // Nothing extra is stored in the database - both numbers are derived from weeklyHours.
 export const MIXED_TYPE = 'Theory + Lab';
 export const FIXED_LAB_HOURS = 2;
+// A Theory + Lab subject never shows up in more than this many back-to-back periods of one day:
+// the 2-period lab block stands alone, and theory periods never extend it or each other past 2.
+export const MAX_MIXED_RUN = 2;
 export const isMixedSubject = (s) => !!s && s.type === MIXED_TYPE;
 export function splitMixedHours(weekly) {
   const w = Number(weekly) || 0;
@@ -282,6 +285,7 @@ function newIndex() {
     clsSubjDay: new Map(),  // 'cls|subj|d' -> count
     clsDay: new Map(),      // 'cls|d' -> count
     subjEntries: new Map(), // subjectId -> entries (for common-subject alignment)
+    clsCellSubj: new Map(),    // 'cls|d|p' -> subjectId occupying that cell (consecutive-run check)
     clsSubjKind: new Map(),    // 'cls|subj|lab' or '...|theory' -> count (Theory + Lab subjects)
     clsSubjDayKind: new Map(), // 'cls|subj|d|lab' or '...|theory' -> count
   };
@@ -294,6 +298,7 @@ function addEntry(idx, e) {
   if (!idx.slot.has(sk)) idx.slot.set(sk, []);
   idx.slot.get(sk).push(e);
   idx.clsCell.add(e.classSectionId + '|' + sk);
+  idx.clsCellSubj.set(e.classSectionId + '|' + sk, e.subjectId);
   inc(idx.clsSubj, e.classSectionId + '|' + e.subjectId);
   inc(idx.clsSubjDay, e.classSectionId + '|' + e.subjectId + '|' + e.dayOrderId);
   inc(idx.clsDay, e.classSectionId + '|' + e.dayOrderId);
@@ -504,6 +509,18 @@ function placeTask(ctx, idx, cs, task, primaryId, opt, rand, jitter) {
       if (cells.some((p) => idx.clsCell.has(cs.id + '|' + day.id + '|' + p.id))) continue;
       if (forbid && cells.some((p) => forbid.has(cs.id + '|' + subject.id + '|' + day.id + '|' + p.id))) continue;
       const cellKeys = cells.map((p) => day.id + '|' + p.id);
+
+      if (mixed) {
+        // Count the periods of this same subject already sitting directly before/after these cells.
+        // Placing here must not create a run longer than MAX_MIXED_RUN (this is what stopped the lab
+        // block from fusing with theory periods into a 3-5 period wall of the same subject).
+        const sameAt = (k) => idx.clsCellSubj.get(cs.id + '|' + day.id + '|' + ctx.periodSlots[k].id) === subject.id;
+        let before = 0;
+        for (let k = i - 1; k >= 0 && sameAt(k); k--) before++;
+        let after = 0;
+        for (let k = i + L; k < nPeriods && sameAt(k); k++) after++;
+        if (before + L + after > MAX_MIXED_RUN) continue;
+      }
 
       for (const f of eligible) {
         if (!facultyAvailableOn(f, day)) continue;
